@@ -6,7 +6,8 @@ ids = setmetatable({__id=0}, {
 
 		self.__id = self.__id +1 -- Otherwise increment the counter
 		return rawset(self, key, self.__id)[key] -- Set the new id to the key and return the value
-	end
+	end,
+	__newindex = function() end
 })
 
 --[==[
