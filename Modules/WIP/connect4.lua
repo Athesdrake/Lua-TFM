@@ -217,20 +217,6 @@ Queue.left_put = Queue.put
 Queue.left_pop = Queue.pop
 setmetatable(Queue, {__call=function(_,...) return Queue.new(...) end})
 
--- TFM
-tfm.exec.displayPlayerName = function(playerName)
-	local name = playerName:match('^([^#]+)')
-	for pl in next, tfm.get.room.playerList do
-		if pl~=playerName then
-			local n = pl:match('^([^#]+)')
-			if name==n then
-				return playerName
-			end
-		end
-	end
-	return name
-end
-
 -- Main
 function main()
 	--ids
@@ -247,6 +233,7 @@ function main()
 	})
 
 	mfid = -1
+	turn = 0
 
 	--tables
 	players = {nbr=0}
@@ -284,7 +271,8 @@ function eventChatCommand(name, cmd)
 		else
 			local opponent = 0
 			if players.nbr==1 then
-				system.bindMouse(name, true)
+				turn = 2
+				ui.addTextArea(ids.turn, ("<b><font size='16'><j>%s<n>'s turn"):format(displayName(name)), nil, 580, 360, 225, nil, 0x0, 0x0, 0, true)
 				for n, pl in next, players do
 					if n~='nbr' then
 						pl.opponent = name
@@ -292,6 +280,8 @@ function eventChatCommand(name, cmd)
 						break -- it should be only one player but whatever it's better to be sure.
 					end
 				end
+				system.bindMouse(name, true)
+				system.bindMouse(opponent, true)
 			end
 			local color = players.nbr==1 and 0xffff00 or 0xff0000
 			players.nbr = players.nbr +1
@@ -302,7 +292,7 @@ function eventChatCommand(name, cmd)
 			if players[name].id==2 then
 				p1, p2 = p2, p1
 			end
-			ui.addTextArea(ids.versus, txt:format(tfm.exec.displayPlayerName(p1), p2==0 and '?' or tfm.exec.displayPlayerName(p2)), nil, 575, 120, 225, nil, 0x0, 0x0, 0, true)
+			ui.addTextArea(ids.versus, txt:format(displayName(p1), p2==0 and '?' or displayName(p2)), nil, 575, 120, 225, nil, 0x0, 0x0, 0, true)
 		end
 	elseif cmd:match('^call') and name=='Athesdrake#0000' then
 		local path, args = nil, {}
@@ -344,6 +334,7 @@ function eventLoop()
 			break
 		end
 	end
+	print(turn)
 end
 
 function eventNewGame()
@@ -371,13 +362,16 @@ function eventMouse(name, x, y)
 	x = x-(x+20)%40+20
 	if x<280 or x>520 then return end
 
-	local player = {color=0xff0000, id=5}
 	local player = players[name]
+	if player.id~=turn then return end
+	turn = 0
+
 	local j = (x-280)/40+1
 	local i = grid:drop(j)
-	if not i then return end
-	system.bindMouse(name, false)
-
+	if not i then
+		turn = player.id
+		return
+	end
 	grid[i][j] = player.id
 
 	tfm.exec.addPhysicObject(mfid, x, 80, {type=13, width=15, miceCollision=false, color=player.color, dynamic=true, fixedRotation=true})
@@ -386,6 +380,7 @@ function eventMouse(name, x, y)
 
 	local win = {grid:checkWin()}
 	if win[1] then
+		ui.removeTextArea(ids.turn)
 		return setTimeout(function()
 			ui.addTextArea(ids.won, ('<p align="center"><font size="25">%s won !'):format(name), nil, 0, 50, 800, nil, 0x0, 0x0, 0, true)
 			local scale = function(p)
@@ -395,11 +390,14 @@ function eventMouse(name, x, y)
 				}
 			end
 			draw(1, scale(win[2]), scale(win[3]), 0xffffff, 5)
-			tfm.exec.chatMessage('won, go new_game')
-			setTimeout(new_game, 3)
+			setTimeout(new_game, 5)
 		end, 1)
 	end
-	setTimeout(system.bindMouse, 0.5, player.opponent, true)
+
+	local txt = ("<b><font size='16'><%s>%s<n>'s turn"):format(player.id==1 and 'j' or 'r', displayName(player.opponent))
+	ui.addTextArea(ids.turn, txt, nil, 580, 360, 225, nil, 0x0, 0x0, 0, true)
+
+	setTimeout(function(p) turn = players[p].id end, 0.5, player.opponent, true)
 end
 
 -- Debug
@@ -423,6 +421,8 @@ end
 -- Game
 function new_game(map)
 	grid = Grid()
+	players = {nbr=0}
+
 	if map or need_reload then
 		tfm.exec.newGame('<C><P /><Z><S><S L="800" o="324650" H="10" X="400" Y="394" T="12" P="0,0,0.3,0.2,0,0,0,0" /></S><D /><O /></Z></C>')
 	end
@@ -439,6 +439,8 @@ function new_game(map)
 		eventChatCommand(p1, 'join')
 		eventChatCommand(p2, 'join')
 		update_queue()
+
+		ui.removeTextArea(ids.versus)
 	end
 end
 
@@ -451,6 +453,8 @@ function update_queue()
 
 	if #txt>1 then
 		ui.addTextArea(ids.queue, table.concat(txt, '\n'), nil, 0, 50, nil, nil, 0x0, 0x0, 0, true)
+	else
+		ui.removeTextArea(ids.queue)
 	end
 end
 
@@ -458,6 +462,25 @@ end
 function draw(id, pos1, pos2, color, line)
 	local def = {type=0, point1=table.concat(pos1, ","), point2=table.concat(pos2, ","), line=line or 3, color=color, alpha=1, foreground=true}
 	tfm.exec.addJoint(id, 1001, 1002, def)
+end
+
+-- DisplayName
+function displayName(playerName)
+	if type(playerName)~='string' then
+		print(('<R>displayName expected a string as argument, got "%s"</R>'):format(tostring(playerName)))
+		return tostring(playerName)
+	end
+
+	local name = playerName:match('^([^#]+)')
+	for pl in next, tfm.get.room.playerList do
+		if pl~=playerName then
+			local n = pl:match('^([^#]+)')
+			if name==n then
+				return playerName
+			end
+		end
+	end
+	return name
 end
 
 -- SetTimeout
