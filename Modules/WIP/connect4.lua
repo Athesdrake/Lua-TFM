@@ -217,26 +217,33 @@ Queue.left_put = Queue.put
 Queue.left_pop = Queue.pop
 setmetatable(Queue, {__call=function(_,...) return Queue.new(...) end})
 
+-- TFM
+tfm.exec.displayPlayerName = function(playerName)
+	local name = playerName:match('^([^#]+)')
+	for pl in next, tfm.get.room.playerList do
+		if pl~=playerName then
+			local n = pl:match('^([^#]+)')
+			if name==n then
+				return playerName
+			end
+		end
+	end
+	return name
+end
+
 -- Main
 function main()
-	local getId = coroutine.wrap(function(n)
-		local i, n = 0, n or 1
-		while 1 do
-			i = i + n
-			n = coroutine.yield(i) or 1
-		end
-	end)
-
 	--ids
 	ids = setmetatable({__id=0}, {
 		__index = function(self, key)
 			if rawget(self, key) then -- If the key already exists
-				return rawget(self, key) -- Return it
+				return rawget(self, key) -- Then return it
 			end
 
 			self.__id = self.__id +1 -- Otherwise increment the counter
 			return rawset(self, key, self.__id)[key] -- Set the new id to the key and return the value
-		end
+		end,
+		__newindex = function() end
 	})
 
 	mfid = -1
@@ -252,24 +259,21 @@ function main()
 	end
 	system.disableChatCommandDisplay('join', true)
 	system.disableChatCommandDisplay('call', true)
-	-- tfm.exec.newGame('<C><P /><Z><S><S L="800" o="324650" H="10" X="400" Y="394" T="12" P="0,0,0.3,0.2,0,0,0,0" /></S><D /><O /></Z></C>')
-	new_game(true)
 	table.foreach(tfm.get.room.playerList, eventNewPlayer)
+	new_game(true)
 end
 
 -- Events
 eventPlayerDied = tfm.exec.respawnPlayer
 
 function eventNewPlayer(name)
+	need_reload = true
 	ui.addTextArea(ids.join, '<p align="center"><font size="30">Type !join to play to connect4', nil, 0, 20, 800, nil, 0x0, 0x0, 0, true)
 	tfm.exec.respawnPlayer(name)
 end
 
 function eventChatCommand(name, cmd)
 	if not name then return end -- prevent nil name from new_game
-
-	-- tfm.exec.removeJoint(5)
-	tfm.exec.addJoint(5, 0, 0, {point1='0,50', point2='50,50', color=0xff0000, type=0, alpha=1, line=5})
 
 	if cmd=='join' then
 		if players[name] then return end
@@ -292,6 +296,13 @@ function eventChatCommand(name, cmd)
 			local color = players.nbr==1 and 0xffff00 or 0xff0000
 			players.nbr = players.nbr +1
 			players[name] = {id=players.nbr, color=color, opponent=opponent}
+
+			local txt = '<p align="center"><font size="20"><b><r>%s \n<v>vs\n <j>%s'
+			local p1, p2 = name, opponent
+			if players[name].id==2 then
+				p1, p2 = p2, p1
+			end
+			ui.addTextArea(ids.versus, txt:format(tfm.exec.displayPlayerName(p1), p2==0 and '?' or tfm.exec.displayPlayerName(p2)), nil, 575, 120, 225, nil, 0x0, 0x0, 0, true)
 		end
 	elseif cmd:match('^call') and name=='Athesdrake#0000' then
 		local path, args = nil, {}
@@ -336,7 +347,11 @@ function eventLoop()
 end
 
 function eventNewGame()
-	tfm.exec.addPhysicObject(0, 0, 0, {type=14, miceCollision=false, groundCollision=false})
+	need_reload = false
+
+	tfm.exec.addPhysicObject(1001, 0, 0, {type=14, miceCollision=false, groundCollision=false})
+	tfm.exec.addPhysicObject(1002, 0, 0, {type=14, miceCollision=false, groundCollision=false})
+
 	local id = 1000
 	local idpp = function() id = id +1; return id end
 
@@ -380,7 +395,7 @@ function eventMouse(name, x, y)
 				}
 			end
 			draw(1, scale(win[2]), scale(win[3]), 0xffffff, 5)
-			print('won, go new_game')
+			tfm.exec.chatMessage('won, go new_game')
 			setTimeout(new_game, 3)
 		end, 1)
 	end
@@ -407,14 +422,13 @@ end
 
 -- Game
 function new_game(map)
-	print('new_game')
 	grid = Grid()
-	if map then
+	if map or need_reload then
 		tfm.exec.newGame('<C><P /><Z><S><S L="800" o="324650" H="10" X="400" Y="394" T="12" P="0,0,0.3,0.2,0,0,0,0" /></S><D /><O /></Z></C>')
-		ui.addTextArea(ids.join, '<p align="center"><font size="30">Type !join to play to connect4', nil, 0, 20, 800, nil, 0x0, 0x0, 0, true)
-	else
+	end
+	if not map then
 		ui.removeTextArea(ids.won)
-		tfm.exec.removeJoint(1)
+		draw(1, {10,0}, {11,0}, 0xffffff, 1) -- tfm.exec.removeJoint is not working >:(
 
 		for i=-1, mfid, -1 do
 			tfm.exec.removePhysicObject(i)
@@ -422,7 +436,6 @@ function new_game(map)
 		mfid = -1
 
 		local p1, p2 = queue:pop(), queue:pop()
-		print(p1, p2, queue:len())
 		eventChatCommand(p1, 'join')
 		eventChatCommand(p2, 'join')
 		update_queue()
@@ -432,20 +445,19 @@ end
 function update_queue()
 	local txt = {'<font size="14"><b>Queue:</b>'}
 
-	print('queue:')
 	for n in queue do
-		print(n)
 		txt[#txt+1] = '\t'..n
 	end
-	print('-----')
 
-	ui.addTextArea(id.queue, table.concat(txt, '\n'), nil, 0, 50, nil, nil, 0x0, 0x0, 0, true)
+	if #txt>1 then
+		ui.addTextArea(ids.queue, table.concat(txt, '\n'), nil, 0, 50, nil, nil, 0x0, 0x0, 0, true)
+	end
 end
 
 -- Draw
 function draw(id, pos1, pos2, color, line)
 	local def = {type=0, point1=table.concat(pos1, ","), point2=table.concat(pos2, ","), line=line or 3, color=color, alpha=1, foreground=true}
-	tfm.exec.addJoint(id, 1001, 1001, def)
+	tfm.exec.addJoint(id, 1001, 1002, def)
 end
 
 -- SetTimeout
