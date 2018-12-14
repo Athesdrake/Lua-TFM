@@ -237,6 +237,7 @@ function main()
 
 	--tables
 	players = {nbr=0}
+	timer = {active=false, time=0}
 	grid = Grid()
 	queue = Queue()
 
@@ -282,6 +283,8 @@ function eventChatCommand(name, cmd)
 				end
 				system.bindMouse(name, true)
 				system.bindMouse(opponent, true)
+				timer.active = true
+				timer.time = 30
 			end
 			local color = players.nbr==1 and 0xffff00 or 0xff0000
 			players.nbr = players.nbr +1
@@ -334,7 +337,23 @@ function eventLoop()
 			break
 		end
 	end
-	print(turn)
+	if timer.active then
+		timer.time = timer.time - 5
+		if timer.time<=0 then
+			ui.removeTextArea(ids.timer)
+			timer.active = false
+
+			for name, pl in next, players do
+				if name~='nbr' and pl.id==turn then
+					local txt = '<p align="center"><font size="25"><v>%s</v> won, <v>%s</v> took too much time !'
+					eventWin(pl.opponent, txt:format(pl.opponent, name))
+				end
+			end
+			turn = 0
+			return
+		end
+		ui.addTextArea(ids.timer, ('<b><p align="center"><font size="20">%d'):format(math.floor(timer.time)), nil, 0, 90, 800, nil, 0x0, 0x0, 0, true)
+	end
 end
 
 function eventNewGame()
@@ -381,23 +400,32 @@ function eventMouse(name, x, y)
 	local win = {grid:checkWin()}
 	if win[1] then
 		ui.removeTextArea(ids.turn)
-		return setTimeout(function()
-			ui.addTextArea(ids.won, ('<p align="center"><font size="25">%s won !'):format(name), nil, 0, 50, 800, nil, 0x0, 0x0, 0, true)
-			local scale = function(p)
-				return {
-					240+p[2]*40,
-					115+p[1]*40
-				}
-			end
-			draw(1, scale(win[2]), scale(win[3]), 0xffffff, 5)
-			setTimeout(new_game, 5)
-		end, 1)
+		ui.removeTextArea(ids.timer)
+		timer.active = false
+		return setTimeout(eventWin, 1, name, ('<p align="center"><font size="25"><v>%s</v> won !'):format(name), win)
 	end
 
 	local txt = ("<b><font size='16'><%s>%s<n>'s turn"):format(player.id==1 and 'j' or 'r', displayName(player.opponent))
 	ui.addTextArea(ids.turn, txt, nil, 580, 360, 225, nil, 0x0, 0x0, 0, true)
 
 	setTimeout(function(p) turn = players[p].id end, 0.5, player.opponent, true)
+	timer.time = 30
+	timer.active = true
+end
+
+function eventWin(name, txt, win)
+	ui.addTextArea(ids.won, txt, nil, 0, 50, 800, nil, 0x0, 0x0, 0, true)
+	local scale = function(p)
+		return {
+			240+p[2]*40,
+			115+p[1]*40
+		}
+	end
+
+	if win then
+		draw(1, scale(win[2]), scale(win[3]), 0xffffff, 5)
+	end
+	setTimeout(new_game, 5)
 end
 
 -- Debug
