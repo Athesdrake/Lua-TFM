@@ -217,8 +217,56 @@ Queue.left_put = Queue.put
 Queue.left_pop = Queue.pop
 setmetatable(Queue, {__call=function(_,...) return Queue.new(...) end})
 
+-- Translation
+T = {
+	en = {
+		join = 'Type !join to play to connect4',
+		turn = "<%s>%s<n>'s turn",
+		queue = 'Queue',
+		win = {
+			timer = '<v>%s</v> won, <v>%s</v> took too much time !',
+			won = '<v>%s</v> won !'
+		}
+	},
+	fr = {
+		join = 'Utilise la commande !join pour jouer à puissance 4',
+		turn = "Au tour de <%s>%s<n>",
+		queue = "File d'attente",
+		win = {
+			timer = '<v>%s</v> a gagné, <v>%s</v> à pris trop de temps !',
+			won = '<v>%s</v> a gagné !'
+		}
+	}
+}
+do
+	for l,tbl in next, T do
+		if l~='en' then
+			setmetatable(tbl, {
+				__index = function(self, key)
+					if rawget(self, key) then
+						return rawget(self, key)
+					end
+					printf("<r>The key '%s' is missing in the locale '%s'</r>", key, l)
+					return T.en[key]
+				end
+			})
+		end
+	end
+	setmetatable(T, {
+		__index = function(self, key)
+			if rawget(self, key) then
+				return rawget(self, key)
+			end
+			return self.en
+		end
+	})
+end
+
 -- Main
 function main()
+	-- const
+	TIME_PER_TURN = 20
+
 	--ids
 	ids = setmetatable({__id=0}, {
 		__index = function(self, key)
@@ -236,6 +284,7 @@ function main()
 	turn = 0
 
 	--tables
+	locale = {}
 	players = {nbr=0}
 	timer = {active=false, time=0}
 	grid = Grid()
@@ -256,7 +305,15 @@ eventPlayerDied = tfm.exec.respawnPlayer
 
 function eventNewPlayer(name)
 	need_reload = true
-	ui.addTextArea(ids.join, '<p align="center"><font size="30">Type !join to play to connect4', nil, 0, 20, 800, nil, 0x0, 0x0, 0, true)
+	if players.nbr<2 then
+		eventNewGame()
+	end
+	if players.nbr>=1 then
+		showVersus()
+	end
+	locale[name] = T[tfm.get.room.playerList[name].community]
+	print(tfm.get.room.playerList[name].community)
+	ui.addTextArea(ids.join, '<p align="center"><font size="30">'..locale[name].join, name, 0, 20, 800, nil, 0x0, 0x0, 0, true)
 	tfm.exec.respawnPlayer(name)
 end
 
@@ -273,7 +330,10 @@ function eventChatCommand(name, cmd)
 			local opponent = 0
 			if players.nbr==1 then
 				turn = 2
-				ui.addTextArea(ids.turn, ("<b><font size='16'><j>%s<n>'s turn"):format(displayName(name)), nil, 580, 360, 225, nil, 0x0, 0x0, 0, true)
+				for n in next, tfm.get.room.playerList do
+					local txt = "<b><font size='16'>"..locale[n].turn:format('j', displayName(name))
+					ui.addTextArea(ids.turn, txt, n, 580, 360, 225, nil, 0x0, 0x0, 0, true)
+				end
 				for n, pl in next, players do
 					if n~='nbr' then
 						pl.opponent = name
@@ -284,18 +344,13 @@ function eventChatCommand(name, cmd)
 				system.bindMouse(name, true)
 				system.bindMouse(opponent, true)
 				timer.active = true
-				timer.time = 30
+				timer.time = TIME_PER_TURN
 			end
 			local color = players.nbr==1 and 0xffff00 or 0xff0000
 			players.nbr = players.nbr +1
 			players[name] = {id=players.nbr, color=color, opponent=opponent}
 
-			local txt = '<p align="center"><font size="20"><b><r>%s \n<v>vs\n <j>%s'
-			local p1, p2 = name, opponent
-			if players[name].id==2 then
-				p1, p2 = p2, p1
-			end
-			ui.addTextArea(ids.versus, txt:format(displayName(p1), p2==0 and '?' or displayName(p2)), nil, 575, 120, 225, nil, 0x0, 0x0, 0, true)
+			showVersus()
 		end
 	elseif cmd:match('^call') and name=='Athesdrake#0000' then
 		local path, args = nil, {}
@@ -338,15 +393,21 @@ function eventLoop()
 		end
 	end
 	if timer.active then
-		timer.time = timer.time - 5
+		timer.time = timer.time - 0.5
 		if timer.time<=0 then
 			ui.removeTextArea(ids.timer)
 			timer.active = false
 
 			for name, pl in next, players do
 				if name~='nbr' and pl.id==turn then
-					local txt = '<p align="center"><font size="25"><v>%s</v> won, <v>%s</v> took too much time !'
-					eventWin(pl.opponent, txt:format(pl.opponent, name))
+					for n in next, tfm.get.room.playerList do
+						for n in next, tfm.get.room.playerList do
+							local txt = locale[n].win.timer:format(displayName(pl.opponent), displayName(name))
+							ui.addTextArea(ids.won, '<p align="center"><font size="25">'..txt, n, 0, 50, 800, nil, 0x0, 0x0, 0, true)
+						end
+					end
+					eventWin(pl.opponent)
+					break
 				end
 			end
 			turn = 0
@@ -358,9 +419,6 @@ end
 
 function eventNewGame()
 	need_reload = false
-
-	tfm.exec.addPhysicObject(1001, 0, 0, {type=14, miceCollision=false, groundCollision=false})
-	tfm.exec.addPhysicObject(1002, 0, 0, {type=14, miceCollision=false, groundCollision=false})
 
 	local id = 1000
 	local idpp = function() id = id +1; return id end
@@ -374,7 +432,6 @@ function eventNewGame()
 	end
 	tfm.exec.addPhysicObject(idpp(), 540, 200, {type=14, height=400, miceCollision=false})
 	tfm.exec.addPhysicObject(idpp(), 400, 375, {type=14, width=270, miceCollision=false})
-	tfm.exec.addJoint(5, 0, 0, {point1='20,20', point2='50,50', color=0xff0000, type=0, alpha=1, line=5})
 end
 
 function eventMouse(name, x, y)
@@ -382,6 +439,9 @@ function eventMouse(name, x, y)
 	if x<280 or x>520 then return end
 
 	local player = players[name]
+	if not player then
+		system.bindMouse(name, false)
+	end
 	if player.id~=turn then return end
 	turn = 0
 
@@ -402,19 +462,36 @@ function eventMouse(name, x, y)
 		ui.removeTextArea(ids.turn)
 		ui.removeTextArea(ids.timer)
 		timer.active = false
-		return setTimeout(eventWin, 1, name, ('<p align="center"><font size="25"><v>%s</v> won !'):format(name), win)
+		setTimeout(function()
+			for n in next, tfm.get.room.playerList do
+				local txt = locale[n].win.won:format(name)
+				ui.addTextArea(ids.won, '<p align="center"><font size="25">'..txt, n, 0, 50, 800, nil, 0x0, 0x0, 0, true)
+			end
+			eventWin(name, win)
+		end, 1)
+		return
 	end
 
-	local txt = ("<b><font size='16'><%s>%s<n>'s turn"):format(player.id==1 and 'j' or 'r', displayName(player.opponent))
-	ui.addTextArea(ids.turn, txt, nil, 580, 360, 225, nil, 0x0, 0x0, 0, true)
+	local color = player.id==1 and 'j' or 'r'
+	for n in next, tfm.get.room.playerList do
+		local txt = "<b><font size='16'>"..locale[n].turn:format(color, displayName(player.opponent))
+		ui.addTextArea(ids.turn, txt, n, 580, 360, 225, nil, 0x0, 0x0, 0, true)
+	end
 
 	setTimeout(function(p) turn = players[p].id end, 0.5, player.opponent, true)
-	timer.time = 30
+	timer.time = TIME_PER_TURN
 	timer.active = true
+
+	for n in next, grid[1] do
+		if n~=0 then
+			return
+		end
+	end
+
+	eventWin(nil, 'Nobody won, it\'s a draw !')
 end
 
-function eventWin(name, txt, win)
-	ui.addTextArea(ids.won, txt, nil, 0, 50, 800, nil, 0x0, 0x0, 0, true)
+function eventWin(name, win)
 	local scale = function(p)
 		return {
 			240+p[2]*40,
@@ -446,6 +523,10 @@ function print(...)
 	_print(table.concat(tmp, ' '))
 end
 
+function printf(str, ...)
+	print(str:format(...))
+end
+
 -- Game
 function new_game(map)
 	grid = Grid()
@@ -473,14 +554,17 @@ function new_game(map)
 end
 
 function update_queue()
-	local txt = {'<font size="14"><b>Queue:</b>'}
+	local txt = {'<font size="14"><b>%s:</b>'}
 
 	for n in queue do
 		txt[#txt+1] = '\t'..n
 	end
 
 	if #txt>1 then
-		ui.addTextArea(ids.queue, table.concat(txt, '\n'), nil, 0, 50, nil, nil, 0x0, 0x0, 0, true)
+		txt = table.concat(txt, '\n')
+		for n in next, tfm.get.room.playerList do
+			ui.addTextArea(ids.queue, txt:format(locale[n].queue), n, 0, 50, nil, nil, 0x0, 0x0, 0, true)
+		end
 	else
 		ui.removeTextArea(ids.queue)
 	end
@@ -509,6 +593,28 @@ function displayName(playerName)
 		end
 	end
 	return name
+end
+
+-- ShowVersus
+function showVersus()
+	local txt = '<p align="center"><font size="20"><b><r>%s \n<v>vs\n <j>%s'
+	local pl = {}
+	for n in next, players do
+		if n~='nbr' then
+			pl[#pl+1] = n
+		end
+	end
+	if #pl==0 then
+		return
+	elseif #pl==1 then
+		pl[2] = 0
+	end
+
+	local p1, p2 = table.unpack(pl)
+	if players[p1].id==2 then
+		p1, p2 = p2, p1
+	end
+	ui.addTextArea(ids.versus, txt:format(displayName(p1), p2==0 and '?' or displayName(p2)), nil, 575, 120, 225, nil, 0x0, 0x0, 0, true)
 end
 
 -- SetTimeout
