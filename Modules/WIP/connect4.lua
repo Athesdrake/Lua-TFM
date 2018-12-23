@@ -139,84 +139,6 @@ function Grid:drop(j)
 end
 setmetatable(Grid, {__call=function(_,...) return Grid.new(...) end})
 
--- Queue
-Queue = {}
-Queue.__index = Queue
-
-function Queue.__call(self)
-	if not self.__iter or coroutine.status(self.__iter)=='dead' then
-		self.__iter = coroutine.create(function()
-			local i = self.start
-			while i<self.stop do
-				coroutine.yield(self[i])
-				i = i+1
-			end
-		end)
-	end
-	return table.unpack({coroutine.resume(self.__iter)}, 2)
-end
-
-function Queue.new(tbl)
-	tbl = tbl and {table.unpack(tbl)} or {} -- keep only the integer keys
-	tbl.start = 1
-	tbl.stop = 1
-	return setmetatable(tbl, Queue)
-end
-
-function Queue:put(value)
-	self[self.stop] = value
-	self.stop = self.stop +1
-end
-
-function Queue:right_put(value)
-	self[self.stop] = value
-	self.stop = self.stop +1
-end
-
-function Queue:get(index)
-	return self[index or self.start]
-end
-
-function Queue:pop()
-	if self.start==self.stop then return end
-
-	local rval = self[self.start]
-	self.start = self.start +1
-	return rval
-end
-
-function Queue:right_pop()
-	if self.start==self.stop then return end
-
-	local rval = self[self.stop]
-	self.stop = self.stop -1
-	return rval
-end
-
-function Queue:pop_all()
-	local tbl = {table.unpack(self, self.start, self.stop)}
-	self.start = 1
-	self.stop = 1
-	self[1] = nil
-	return next, tbl
-end
-
-function Queue:len()
-	return self.stop - self.start
-end
-
-function Queue:is_in(value)
-	for v in self do
-		if v==value then
-			return true
-		end
-	end
-	return false
-end
-Queue.left_put = Queue.put
-Queue.left_pop = Queue.pop
-setmetatable(Queue, {__call=function(_,...) return Queue.new(...) end})
-
 -- Translation
 T = {
 	en = {
@@ -225,8 +147,13 @@ T = {
 		queue = 'Queue',
 		win = {
 			timer = '<v>%s</v> won, <v>%s</v> took too much time !',
+			draw = "Nobody won, it\'s a draw !",
+			left = '<v>%s</v> won, <v>%<v> has left !',
 			won = '<v>%s</v> won !'
-		}
+		},
+		askJoin = '%s want to play with you.\nDo you accept ?',
+		yes = 'Yes',
+		no = 'No'
 	},
 	fr = {
 		join = 'Utilise la commande !join pour jouer à puissance 4',
@@ -234,26 +161,33 @@ T = {
 		queue = "File d'attente",
 		win = {
 			timer = '<v>%s</v> a gagné, <v>%s</v> à pris trop de temps !',
+			draw = "Égalité, personne n'a gagné !",
+			left = '<v>%s</v> a gagné, <v>%s</v> est partit !',
 			won = '<v>%s</v> a gagné !'
-		}
+		},
+		askJoin = '%s veut jouer avec toi.\nAccepter ?',
+		yes = 'Oui',
+		no = 'Non'
 	}
 }
 do
 	for l,tbl in next, T do
 		if l~='en' then
-			setmetatable(tbl, {
+			T[l] = setmetatable(tbl, {
 				__index = function(self, key)
-					if rawget(self, key) then
-						return rawget(self, key)
+					if not T.en[key] then
+						error(("<r>The key '%s' does not exists</r>"):format(key))
+					else
+						print(("<r>The key '%s' is missing in the locale '%s'</r>"):format(key, l), 2)
+						return T.en[key]
 					end
-					printf("<r>The key '%s' is missing in the locale '%s'</r>", key, l)
-					return T.en[key]
 				end
 			})
 		end
 	end
 	setmetatable(T, {
 		__index = function(self, key)
+			print(key)
 			if rawget(self, key) then
 				return rawget(self, key)
 			end
@@ -288,7 +222,7 @@ function main()
 	players = {nbr=0}
 	timer = {active=false, time=0}
 	grid = Grid()
-	queue = Queue()
+	queue = {}
 
 	-- system
 	for k,v in next, {'AutoShaman', 'AutoNewGame', 'AfkDeath', 'PhysicalConsumables'} do
@@ -317,14 +251,59 @@ function eventNewPlayer(name)
 	tfm.exec.respawnPlayer(name)
 end
 
+function eventPlayerLeft(name)
+	for k,v in next, queue do
+		if v[1]==name then
+			if v[2] then
+				queue[k] = {v[2]}
+			else
+				for i=k,#queue do
+					queue[i] = queue[i+1]
+				end
+			end
+			break
+		elseif v[2]==name then
+			v[2] = nil
+			break
+		end
+	end
+	update_queue()
+	if players[name] then
+		ui.displayWin('left', displayName(players[name].opponent), displayName(name))
+		eventWin(players[name].opponent)
+	end
+end
+
 function eventChatCommand(name, cmd)
 	if not name then return end -- prevent nil name from new_game
 
-	if cmd=='join' then
+	local args = {}
+	for a in cmd:gmatch('%S+') do
+		args[#args+1] = a
+	end
+
+	if args[1]=='join' then
+		local p2 = nil
+		if args[2] then
+			p2 = args[2]:match('#%d+$') and args[2] or args[2]..'#0000'
+		end
+
 		if players[name] then return end
-		if players.nbr==2 then
-			if queue:is_in(name) then return end
-			queue:put(name)
+		if p2 then
+			if players[p2] or not tfm.get.room.playerList[p2] then return end -- TODO: add an error message
+
+			for k,v in next, queue do if v[1]==name or v[2]==name or v[1]==p2 or v[2]==p2 then return end end
+			ui.addPopupArea(ids.askJoin, locale[p2].askJoin:format(displayName(name)), p2, 'join$'..name, 300, 100, 200, 100)
+		elseif players.nbr==2 then
+			for k,v in next, queue do if v[1]==name or v[2]==name then return end end
+
+			for k,tbl in next, queue do
+				if not tbl[2] then
+					tbl[2] = name
+					return update_queue()
+				end
+			end
+			queue[#queue+1] = {name}
 			update_queue()
 		else
 			local opponent = 0
@@ -366,6 +345,7 @@ function eventChatCommand(name, cmd)
 						return print('do not exists:', p)
 					end
 				end
+				return tbl
 			end
 		}
 		for m in cmd:gmatch('%S+') do
@@ -377,9 +357,35 @@ function eventChatCommand(name, cmd)
 				args[#args+1] = tbl[arg[1]](arg[2])
 			end
 		end
-		local tbl = tbl._(path)
-		if tbl then
-			tbl(table.unpack(args))
+		local func = tbl._(path)
+		print(func, table.unpack(args))
+		if func then
+			func(table.unpack(args))
+		end
+	end
+end
+
+function eventTextAreaCallback(id, name, callback)
+	local args = {}
+	for a in callback:gmatch('[^$]+') do
+		args[#args+1] = a
+	end
+
+	if args[1]=='join' then
+		ui.removePopupArea(ids.askJoin, name)
+		if args[3]=='yes' then
+			local p1, p2 = args[2], name
+			-- TODO: add error message
+			if players[p1] or players[p2] then return end
+			for k,v in next, queue do if v[1]==p1 or v[2]==p1 or v[1]==p2 or v[2]==p2 then return end end
+
+			if players.nbr==0 then
+				eventChatCommand(p1, 'join')
+				eventChatCommand(p2, 'join')
+			else
+				queue[#queue+1] = {p1,p2}
+				update_queue()
+			end
 		end
 	end
 end
@@ -398,18 +404,15 @@ function eventLoop()
 			ui.removeTextArea(ids.timer)
 			timer.active = false
 
-			for name, pl in next, players do
-				if name~='nbr' and pl.id==turn then
-					for n in next, tfm.get.room.playerList do
-						for n in next, tfm.get.room.playerList do
-							local txt = locale[n].win.timer:format(displayName(pl.opponent), displayName(name))
-							ui.addTextArea(ids.won, '<p align="center"><font size="25">'..txt, n, 0, 50, 800, nil, 0x0, 0x0, 0, true)
-						end
-					end
-					eventWin(pl.opponent)
-					break
-				end
+			local player
+			for k,v in next, players do if k~='nbr' and v.id==turn then player=v;break end end
+			local p1, p2 = players[player.opponent].opponent, player.opponent
+			if turn==players[p2].id then
+				p1, p2 = p2, p1
 			end
+
+			ui.displayWin('timer', displayName(p1), displayName(p2))
+			eventWin(pl.opponent)
 			turn = 0
 			return
 		end
@@ -441,6 +444,7 @@ function eventMouse(name, x, y)
 	local player = players[name]
 	if not player then
 		system.bindMouse(name, false)
+		return
 	end
 	if player.id~=turn then return end
 	turn = 0
@@ -462,13 +466,8 @@ function eventMouse(name, x, y)
 		ui.removeTextArea(ids.turn)
 		ui.removeTextArea(ids.timer)
 		timer.active = false
-		setTimeout(function()
-			for n in next, tfm.get.room.playerList do
-				local txt = locale[n].win.won:format(name)
-				ui.addTextArea(ids.won, '<p align="center"><font size="25">'..txt, n, 0, 50, 800, nil, 0x0, 0x0, 0, true)
-			end
-			eventWin(name, win)
-		end, 1)
+		setTimeout(ui.displayWin, 1, 'won', displayName(name))
+		eventWin(name, win)
 		return
 	end
 
@@ -488,10 +487,14 @@ function eventMouse(name, x, y)
 		end
 	end
 
-	eventWin(nil, 'Nobody won, it\'s a draw !')
+	ui.displayWin('draw')
+	eventWin(nil)
 end
 
 function eventWin(name, win)
+	players = {nbr=0}
+	timer.active = false
+
 	local scale = function(p)
 		return {
 			240+p[2]*40,
@@ -503,6 +506,37 @@ function eventWin(name, win)
 		draw(1, scale(win[2]), scale(win[3]), 0xffffff, 5)
 	end
 	setTimeout(new_game, 5)
+end
+
+-- Ui
+ui.displayWin = function(type, ...)
+	print(type)
+	for n in next, tfm.get.room.playerList do
+		local txt = locale[n].win[type]:format(...)
+		ui.addTextArea(ids.won, '<p align="center"><font size="25">'..txt, n, 0, 50, 800, nil, 0x0, 0x0, 0, true)
+	end
+end
+ui.addPopupArea = function(id, txt, name, callback, x, y, width, height)
+	width = width or 200
+	height = height or 100
+
+	function addPopup(id, txt, x, y, w, h)
+		ui.addTextArea(id+0, ' ', name, x-1, y-1, w, h, 0x5D7D90, 0x5D7D90, 1, true)
+		ui.addTextArea(id+1, ' ', name, x+1, y+1, w, h, 0x000001, 0x000001, 1, true)
+		ui.addTextArea(id+2, txt, name, x  , y  , w, h, 0x3C5064, 0x3C5064, 1, true)
+	end
+	addPopup(id*1000, txt, x, y, width, height) -- main body
+
+	local h = 20
+	local y, w = y+height-3*h/2, 3*width/10
+	local txt = '<p align="center"><a href="event:%s%s">%s'
+	addPopup(id*1000+3, txt:format(callback, '$yes', locale[name].yes), x+width/10, y, w, h) -- button 'yes'
+	addPopup(id*1000+6, txt:format(callback, '$no', locale[name].no), x+3*width/5, y, w, h) -- button 'no'
+end
+ui.removePopupArea = function(id, name)
+	for i=id*1000, id*1000+9 do
+		ui.removeTextArea(i, name)
+	end
 end
 
 -- Debug
@@ -523,10 +557,6 @@ function print(...)
 	_print(table.concat(tmp, ' '))
 end
 
-function printf(str, ...)
-	print(str:format(...))
-end
-
 -- Game
 function new_game(map)
 	grid = Grid()
@@ -544,9 +574,13 @@ function new_game(map)
 		end
 		mfid = -1
 
-		local p1, p2 = queue:pop(), queue:pop()
+		local p1, p2 = table.unpack(queue[1] or {})
 		eventChatCommand(p1, 'join')
 		eventChatCommand(p2, 'join')
+
+		for i=1,#queue do
+			queue[i] = queue[i+1]
+		end
 		update_queue()
 
 		ui.removeTextArea(ids.versus)
@@ -556,12 +590,12 @@ end
 function update_queue()
 	local txt = {'<font size="14"><b>%s:</b>'}
 
-	for n in queue do
-		txt[#txt+1] = '\t'..n
+	for k, tbl in next, queue do
+		txt[#txt+1] = ('<r>%s <g>vs <j>%s'):format(displayName(tbl[1]), tbl[2] and displayName(tbl[2]) or '?')
 	end
 
 	if #txt>1 then
-		txt = table.concat(txt, '\n')
+		txt = table.concat(txt, '\n\t')
 		for n in next, tfm.get.room.playerList do
 			ui.addTextArea(ids.queue, txt:format(locale[n].queue), n, 0, 50, nil, nil, 0x0, 0x0, 0, true)
 		end
@@ -620,7 +654,7 @@ end
 -- SetTimeout
 _timeout = {}
 function setTimeout(f, seconds, ...)
-    _timeout[#_timeout+1] = {t=os.time()+seconds*1000, f=f, args={...}}
+	_timeout[#_timeout+1] = {t=os.time()+seconds*1000, f=f, args={...}}
 end
 
 main()
