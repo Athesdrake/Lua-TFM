@@ -407,12 +407,12 @@ function eventLoop()
 			local player
 			for k,v in next, players do if k~='nbr' and v.id==turn then player=v;break end end
 			local p1, p2 = players[player.opponent].opponent, player.opponent
-			if turn==players[p2].id then
+			if turn==players[p1].id then
 				p1, p2 = p2, p1
 			end
 
 			ui.displayWin('timer', displayName(p1), displayName(p2))
-			eventWin(pl.opponent)
+			eventWin(p1)
 			turn = 0
 			return
 		end
