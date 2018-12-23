@@ -1,5 +1,5 @@
 _timeout = {}
--- Execute a function a certain amount of seconds with the specified arguments
+-- Execute a function after a certain amount of seconds with the specified arguments
 function setTimeout(func, seconds, args)
 	_timeout[#_timeout+1] = {
 		t = os.time() + seconds * 1000,
