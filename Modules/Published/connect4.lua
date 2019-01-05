@@ -426,7 +426,7 @@ function eventNewGame()
 	local id = 1000
 	local idpp = function() id = id +1; return id end
 
-	tfm.exec.addPhysicObject(idpp(), 400, 255, {type=12, width=350, height=270, color=0xff, miceCollision=false, groundCollision=false})
+	-- tfm.exec.addPhysicObject(idpp(), 400, 255, {type=12, width=350, height=270, color=0xff, miceCollision=true, groundCollision=false})
 	for x=280, 520, 40 do
 		for y=155, 355, 40 do
 			tfm.exec.addPhysicObject(idpp(), x, y, {type=13, width=15, miceCollision=false, groundCollision=false, color=0x6A7495})
@@ -481,19 +481,27 @@ function eventMouse(name, x, y)
 	timer.time = TIME_PER_TURN
 	timer.active = true
 
+	local draw = false
 	for n in next, grid[1] do
-		if n~=0 then
-			return
+		if n==0 then
+			draw = true
+			break
 		end
 	end
 
-	ui.displayWin('draw')
-	eventWin(nil)
+
+	if draw then
+		print('Draw')
+		-- ui.displayWin('draw')
+		-- eventWin(nil)
+	end
 end
 
 function eventWin(name, win)
 	players = {nbr=0}
 	timer.active = false
+
+	ui.removeTextArea(ids.turn)
 
 	local scale = function(p)
 		return {
@@ -505,7 +513,7 @@ function eventWin(name, win)
 	if win then
 		draw(1, scale(win[2]), scale(win[3]), 0xffffff, 5)
 	end
-	setTimeout(new_game, 5)
+	setTimeout(new_game, 7)
 end
 
 -- Ui
@@ -560,13 +568,13 @@ end
 -- Game
 function new_game(map)
 	grid = Grid()
-	players = {nbr=0}
 
 	if map or need_reload then
-		tfm.exec.newGame('<C><P /><Z><S><S L="800" o="324650" H="10" X="400" Y="394" T="12" P="0,0,0.3,0.2,0,0,0,0" /></S><D /><O /></Z></C>')
+		tfm.exec.newGame([[<C><P/><Z><S><S H="270" L="350" P="0,0,0.3,0.2,0,0,0,0" T="12" X="400" Y="255" c="3" o="ff"/><S H="10" L="34" P="0,0,0,1.5,0,0,0,0" T="2" X="110" Y="393"/><S H="10" L="34" P="0,0,0,1.5,0,0,0,0" T="2" X="690" Y="393"/><S H="20" L="380" P="0,0,0.3,0.2,0,0,0,0" T="12" X="400" Y="388" c="4" o="dd"/><S H="100" L="800" P="0,0,0.3,0.2,0,0,0,0" T="0" X="400" Y="440"/><S H="25" L="80" P="0,0,0.3,0.2,0,0,0,0" T="0" X="40" Y="305"/><S H="25" L="80" P="0,0,0.3,0.2,0,0,0,0" T="0" X="40" Y="205"/><S H="25" L="80" P="0,0,0.3,0.2,0,0,0,0" T="0" X="760" Y="305"/><S H="25" L="80" P="0,0,0.3,0.2,0,0,0,0" T="0" X="760" Y="205"/><S H="31" L="810" P="0,0,0.3,0,0,0,0,0" T="10" X="400" Y="8"/><S H="270" L="25" P="0,0,,,,0,0,0" T="9" m="" X="212" Y="255"/><S H="270" L="25" P="0,0,,,,0,0,0" T="9" m="" X="587" Y="255"/><S H="270" L="10" P="0,0,0,0,0,0,0,0" T="14" X="229" Y="255" c="3"/><S H="270" L="10" P="0,0,0,0,0,0,0,0" T="14" X="571" Y="255" c="3"/><S H="31" L="10" P="0,0,0,0,0,0,0,0" T="14" X="-1" Y="8" c="3"/><S H="31" L="10" P="0,0,0,0,0,0,0,0" T="14" X="801" Y="8" c="3"/></S><D><P C="427b8f" P="0,0" T="34" X="0" Y="0"/><P C="8a311b" P="0,0" T="19" X="40" Y="395"/><P C="8a311b" P="0,0" T="19" X="40" Y="295"/><P C="8a311b" P="0,0" T="19" X="40" Y="195"/><P C="8a311b" P="0,0" T="19" X="760" Y="395"/><P C="8a311b" P="0,0" T="19" X="760" Y="295"/><P C="8a311b" P="0,0" T="19" X="760" Y="195"/></D><O/></Z></C>]])
 	end
 	if not map then
 		ui.removeTextArea(ids.won)
+		ui.removeTextArea(ids.versus)
 		draw(1, {10,0}, {11,0}, 0xffffff, 1) -- tfm.exec.removeJoint is not working >:(
 
 		for i=-1, mfid, -1 do
@@ -582,8 +590,6 @@ function new_game(map)
 			queue[i] = queue[i+1]
 		end
 		update_queue()
-
-		ui.removeTextArea(ids.versus)
 	end
 end
 
