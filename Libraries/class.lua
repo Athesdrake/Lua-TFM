@@ -50,7 +50,7 @@ function class(name)
 		-- Returns methods first, then attributes and lastly the methods/attributes of the bases.
 		if methods[key] then
 			return methods[key]
-		elseif attributes[key] then
+		elseif type(attributes[key])~='nil' then
 			return attributes[key]
 		else
 			for _, base in next, bases do
@@ -120,22 +120,15 @@ function class(name)
 					local repr = ('<%s object at 0x%s>'):format(name, tostring(instance):sub(8))
 					local meta = {}
 					for k,v in next, methods do meta[k] = v end
-					if not meta.__tostring then
-						meta.__tostring = function(self)
-							return repr
-						end
+					meta.__tostring = meta.__tostring or function(self)
+						return repr
 					end
 
 					setmetatable(instance, meta)
 					if methods.__init__ then
 						methods.__init__(instance, ...)
-					else
-						for _, base in next, bases do
-							if base.__init__ then
-								base.__init__(instance, ...)
-								break
-							end
-						end
+					elseif super then
+						super(instance, ...)
 					end
 					rawset(instance, 'super', nil)
 
